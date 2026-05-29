@@ -1,0 +1,71 @@
+# ===== Secrets & Credentials =====
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# n8n credentials (워크플로우 export 시 자동으로 빠지는 게 정상이지만 안전장치)
+*credentials*.json
+*-credentials.*
+
+# ===== OS =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# ===== Node =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+*.egg-info/
+
+# ===== Build / Dist =====
+dist/
+build/
+*.log
+
+# ===== Temp =====
+tmp/
+temp/
+*.tmp
+*.bak
+
+# ===== 큰 미디어 / 데모 백업 영상 =====
+# 데모 백업 영상은 별도 클라우드(드라이브)로 공유 권장
+*.mp4
+*.mov
+*.webm
+
+# ===== 개인 메모 =====
+NOTES.md
+notes/
+scratch/
