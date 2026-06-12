@@ -13,10 +13,10 @@
 - **팀 번호:** 19팀
 - **팀명:** _TBD_
 - **참가 대학:** 서강대 / 서강대 / 서강대
-- **팀원:*대
+- **팀원:*
   - 양현욱 (서강대 컴퓨터공학과) — [@ukkhnn](https://github.com/TBD)
-  - 전지은 — [@TBD](https://github.com/TBD)
-  - 김민주— [@TBD](https://github.com/TBD)
+  - 전지은 (서강대 물리학과)— [@TBD](https://github.com/TBD)
+  - 김민주 (서강대 경영학과)— [@TBD](https://github.com/TBD)
 
 ---
 
