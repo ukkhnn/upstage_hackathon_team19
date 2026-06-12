@@ -1,4 +1,5 @@
 # Upstage Hackathon Team 19
+## VeriFLow — CS chatbot hallucination guardrail (n8n + Upstage API)
 
 > **Low-code AI Startup Hackathon with Upstage** | 2026.05.23 ~ 2026.05.31
 > 주최: Upstage AI Ambassador · 후원: 이화여자대학교 창업지원단
