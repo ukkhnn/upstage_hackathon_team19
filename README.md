@@ -1,125 +1,64 @@
-# Upstage Hackathon Team 19
-## VeriFLow — CS chatbot hallucination guardrail (n8n + Upstage API)
+# VeriFLow — CS 챗봇 할루시네이션 가드레일
 
-> **Low-code AI Startup Hackathon with Upstage** | 2026.05.23 ~ 2026.05.31
-> 주최: Upstage AI Ambassador · 후원: 이화여자대학교 창업지원단
+> AI 챗봇이 사내 정책과 상충하는 답변을 내보내기 **전에** 실시간 교차 검증하고 차단하는 시스템
+> Low-code AI Startup Hackathon with Upstage (2026.05) · 팀 백스테이지 (19팀)
 
-기업향 CS 챗봇 할루시네이션 가드레일 — 챗봇이 생성한 답변 초안을 사내 정책 PDF와 실시간 교차 검증하여, 금액·기간 같은 핵심 조건이 약관과 다르면 자동 차단 + 관리자 대시보드에 위험 알림.
+## 문제
 
----
+기업 CS 챗봇의 가장 큰 리스크는 내부 규정(환불·보상 정책 등)과 다른 답변을 안내하는 할루시네이션이다. Air Canada 챗봇 오안내 판례(2024)처럼 단 한 번의 잘못된 안내가 법적 책임으로 직결되며, 다수 기업이 사람의 수작업 검수(human-in-the-loop)로 이를 막고 있다. VeriFLow는 이 검수를 n8n 파이프라인으로 자동화한다.
 
-## 팀 정보
+## 동작 방식
 
-- **팀 번호:** 19팀
-- **팀명:** _TBD_
-- **참가 대학:** 서강대 / 서강대 / 서강대
-- **팀원:*
-  - 양현욱 (서강대 컴퓨터공학과) — [@ukkhnn](https://github.com/TBD)
-  - 전지은 (서강대 물리학과)— [@TBD](https://github.com/TBD)
-  - 김민주 (서강대 경영학과)— [@TBD](https://github.com/TBD)
-
----
-
-## 프로젝트 개요
-
-### 문제
-
-2024년 Air Canada는 자사 챗봇이 잘못 안내한 환불 정책 때문에 캐나다 민사해결재판소에서 패소했다. 2025년 한 해 동안 엔터프라이즈 AI 사용자의 47%가 할루시네이션 콘텐츠를 근거로 주요 의사결정을 내렸고, AI 기반 고객 서비스 봇의 39%가 할루시네이션 관련 오류로 운영이 중단됐다. 2026년 1월 22일 한국에서 AI 기본법이 전면 시행되면서, 금융·보험 영역의 CS 챗봇은 고영향 AI로 분류되어 강화된 책임을 진다.
-
-### 솔루션
-
-챗봇이 만들어낸 답변을 고객에게 전달하기 전, 사내 정책 PDF에서 추출한 룰셋(금액·기간·조건)과 자동 대조한다. 어긋나면 차단 + 관리자 대시보드에 알림.
-
-### 핵심 흐름
-
+### 1. 정책 등록 파이프라인 (관리자가 정책 PDF 업로드 시)
 ```
-[정책 PDF 업로드]
-  → Document Parse (구조화)
-  → Information Extract (룰셋 추출)
-  → Google Sheets 저장
-
-[고객 문의 도착]
-  → Solar LLM으로 답변 초안 생성 (RAG)
-  → 답변에서 조건 추출
-  → 룰셋과 대조
-  → 위험도 산출 (안전 / 주의 / 위험)
-  → 위험 시 차단 + 대시보드 알림
+정책 PDF 업로드 (Webhook)
+ ├─ Document Parse → 정책 전문 markdown 변환 → 시트 저장   ← 검증 기준(전문)
+ └─ Information Extract 2-pass
+     ├─ 1차: 정책 섹션/카테고리 추출 (환불·교환·배송 등)
+     └─ 2차: 섹션별 세부 룰셋 추출 (기간·금액·조건·예외·증빙)
+         → 18컬럼 구조화 룰셋 시트 저장                      ← 관리자 감사 기준값
 ```
 
----
+### 2. 실시간 검증 파이프라인 (고객 문의 시)
+```
+고객 질문 (Webhook)
+ → Solar LLM 1차 답변 생성
+ → 정책 전문 조회 (Google Sheets)
+ → Solar LLM 교차 검증: 답변 vs 정책 전문 대조
+    → GREEN  정책 일치 → 원본 답변 전송
+    → YELLOW 단서/예외 누락 → 자동 보정된 안전 답변 전송 + 경고 표시
+    → RED    정책 불일치 → 전송 차단 + 상담원 연결 안내
+ → YELLOW/RED 건은 주제·의도·감정·시급성 분류 후 감사 로그 적재
+```
+
+### 3. 관리자 대시보드 파이프라인
+룰셋 + 위험 로그를 결합해 케이스별 권장 조치(적용 정책 기준값, 안전 답변 기준, 에스컬레이션 조건)를 생성. Lovable로 구현된 대시보드에서 RED/YELLOW 비율 통계와 로그 상세를 확인.
+
+## 핵심 설계 포인트
+
+- **전문 대조 방식**: 좁은 스키마로 숫자 몇 개만 추출해 비교하는 대신, Document Parse가 변환한 정책 전문을 통째로 검증 기준으로 사용 — 표 항목·예외 조건 누락 없이 검증
+- **2-pass Information Extract**: 1차로 섹션 구조를 잡고 2차로 섹션별 상세 룰을 뽑아, 단일 호출 대비 추출 누락 감소
+- **이중 용도 데이터**: 같은 정책 PDF에서 검증용 전문(Document Parse)과 감사용 룰셋(Information Extract)을 분리 생성
+- **방어적 파싱**: 모든 LLM 응답에 파싱 실패 폴백 (실패 시 YELLOW + 상담원 연결로 안전 측 분기)
 
 ## 기술 스택
 
-| 영역 | 도구 | 역할 |
-|---|---|---|
-| AI | **Upstage API** (Solar LLM, Document Parse, Information Extract) | 문서 구조화, 답변 생성, 룰셋 대조 |
-| 백엔드 | **n8n** | 워크플로우 오케스트레이션 |
-| 프론트엔드 | **Lovable** | 대시보드 UI |
-| 데이터 | **Google Sheets** | 룰셋 저장소 (MVP 단계) |
+| 구분 | 기술 |
+|---|---|
+| 워크플로우 | n8n (웹훅 3종: 정책 등록 / 고객 문의 / 관리자 조회) |
+| LLM | Upstage Solar Pro 2 (생성 · 검증 · 분류) |
+| 문서 처리 | Upstage Document Parse, Information Extract |
+| 데이터 | Google Sheets (정책 전문 / 구조화 룰셋 / 감사 로그) |
+| 프론트엔드 | Lovable (고객 챗 UI + 관리자 대시보드) |
 
----
+## 팀 구성 및 역할
 
-## 폴더 구조
+- **양현욱** — 백엔드: n8n 검증 워크플로우 설계, Upstage API 연동
+- 김민주 — 백엔드: n8n 워크플로우, Upstage API
+- 전지은 — 프론트엔드: Lovable UI
 
-```
-upstage_hackathon_team19/
-├── README.md
-├── .gitignore
-├── docs/                  # 기획·리서치 문서
-│   ├── context.md             # 해커톤·팀 전체 컨텍스트
-│   ├── idea_candidate.md      # 아이디어 후보 7개 비교
-│   ├── idea3_background.md    # 채택 아이디어 배경 근거
-│   └── task_breakdown.md      # 작업 분해 (D-4 ~ D-day)
-├── workflows/             # n8n 워크플로우 JSON
-│   ├── ingestion.json         # 정책 PDF → 룰셋 등록
-│   └── runtime.json           # 고객 문의 → 위험도 산출
-├── data/                  # 데모용 가상 데이터
-│   ├── policies/              # 가상 회사 정책 PDF
-│   └── scenarios/             # 데모 시나리오 (안전/주의/위험)
-├── frontend/              # Lovable 관련 메모
-│   └── README.md              # 배포 URL, UI 구조
-└── submission/            # 최종 제출물
-    ├── business_plan.docx     # 서비스 기획서
-    └── pitch_deck.pdf         # 발표 자료
-```
+## 파일
 
----
+- `workflow.sanitized.json` — n8n 워크플로우 (credential·웹훅·시트 ID는 placeholder 처리)
 
-## 일정
-
-| 날짜 | D-day | 작업 |
-|---|---|---|
-| 5/27 수 | D-4 | 환경 셋업, 아이디어 확정 |
-| 5/28 목 | D-3 | Upstage API 단독 테스트, 정책 PDF 초안, 추출 스키마 |
-| 5/29 금 | D-2 | n8n 워크플로우(사전 등록 + 런타임) end-to-end |
-| 5/30 토 | D-1 | 오프라인 통합 테스트 + 멘토링 (이대 학관 108호, 15:00~22:00) |
-| 5/31 일 | D-day | 최종 제출 + 발표 (공덕 서울창업허브, 14:30~) |
-
----
-
-## 최종 제출물 (4가지)
-
-- [ ] **서비스 기획서** (`submission/business_plan.docx`)
-- [ ] **n8n 워크플로우** (`workflows/*.json` + 캡처)
-- [ ] **Lovable UI** 배포 URL — _TBD_
-- [ ] **발표 자료** (`submission/pitch_deck.pdf`)
-
----
-
-## 링크
-
-- **공식 노션:** https://decisive-time-1fa.notion.site/Low-code-AI-Startup-Hackathon-with-Upstage-3698e93c02a280c7a501d91c3e18c6fe
-- **사전 학습:** https://upflow.upstage.ai/courses
-- **카카오톡 채널:** @upstagesinchon
-- **Upstage Console:** https://console.upstage.ai
-- **n8n:** https://n8n.io
-- **Lovable:** https://lovable.dev
-
----
-
-## 작업 규칙
-
-- 비밀값(API 키, 카드 정보, 패스워드)은 **절대 커밋 금지**. `.env`로 분리하고 `.gitignore`로 추적 제외.
-- n8n 워크플로우 export 시 credentials 포함 여부 확인 후 푸시.
-- 커밋 메시지는 어떤 트랙(`workflow:`, `docs:`, `data:`, `plan:`)인지 prefix 붙이기.
-- 해커톤 종료 후 (5/31 발표 끝나고) public으로 전환 예정.
+> 참고: 해커톤 n8n 인스턴스가 만료되어 라이브 데모는 제공되지 않습니다. 워크플로우 JSON은 n8n에 import하여 구조를 확인할 수 있습니다.
