@@ -1,0 +1,1388 @@
+{
+  "name": "solarmart_guardrail_unified",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "REPLACE_ME",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        3488,
+        9776
+      ],
+      "id": "02f7891e-1080-421e-8eb0-5be26fe5f294",
+      "name": "Webhook (등록)",
+      "webhookId": "REPLACE_ME"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        3712,
+        9888
+      ],
+      "id": "c6e3a475-9c8c-4674-a355-54ff297a2cc3",
+      "name": "Extract from File (IE)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/information-extraction",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"information-extract\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": [\n      {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:application/pdf;base64,{{ $('Extract from File (IE)').first().json.data }}\"}}\n    ]}\n  ],\n  \"response_format\": {\n    \"type\": \"json_schema\",\n    \"json_schema\": {\n      \"name\": \"policy_categories\",\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"document_title\": {\"type\": \"string\", \"description\": \"정책 문서 전체 제목\"},\n          \"policy_categories\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"object\",\n              \"properties\": {\n                \"section_no\": {\"type\": \"integer\", \"description\": \"정책 문서의 목차 번호\"},\n                \"section_title\": {\"type\": \"string\", \"description\": \"정책 섹션 제목 (원문 그대로)\"},\n                \"policy_area\": {\"type\": \"string\", \"description\": \"정책 영역 짧은 분류. 예: refund, exchange, shipping, coupon, points, fresh_food, electronics, clothing, subscription, damage\"},\n                \"keywords\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}, \"description\": \"고객 문의와 매칭할 검색 키워드\"}\n              },\n              \"required\": [\"section_no\", \"section_title\", \"policy_area\", \"keywords\"]\n            }\n          }\n        },\n        \"required\": [\"policy_categories\"]\n      }\n    }\n  },\n  \"mode\": \"standard\",\n  \"split\": false,\n  \"confidence\": true\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4160,
+        9888
+      ],
+      "id": "217ebcc4-8eb2-48c2-b6c6-33f9fccf5ad9",
+      "name": "IE 1차 정책 주제 추출"
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json.choices?.[0]?.message?.content;\nif (!content) throw new Error('IE 1차 응답 파싱 실패: content 없음');\nconst parsed = JSON.parse(String(content).replace(/```json|```/g, '').trim());\nlet categories = parsed.policy_categories || [];\nif (!categories.length) throw new Error('policy_categories 배열이 비어 있음');\n\n// 모델이 같은 카테고리를 중복 반환하는 경우 제거 (policy_area > section_no > section_title 순 키)\nconst seen = new Set();\ncategories = categories.filter((c) => {\n  const key = String(c.policy_area || c.section_no || c.section_title || '').trim().toLowerCase();\n  if (!key || seen.has(key)) return false;\n  seen.add(key);\n  return true;\n});\n\nreturn categories.map((c) => ({ json: {\n  policy_id: 'moamall_2026_05',\n  policy_name: parsed.document_title || '모아몰 고객 응대 정책 약관',\n  section_no: c.section_no,\n  section_id: `sec_${String(c.section_no).padStart(2, '0')}`,\n  section_title: c.section_title,\n  policy_area: c.policy_area,\n  keywords: c.keywords || []\n}}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        9888
+      ],
+      "id": "afe686c4-a4f7-4df6-8118-f9368d1c15b4",
+      "name": "섹션 분해"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4608,
+        9888
+      ],
+      "id": "c17350d6-ae5b-4310-95ca-eedc46e03ecd",
+      "name": "섹션 루프"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4832,
+        10000
+      ],
+      "id": "2906d8ab-dcd2-4607-9a58-28e485abe4a4",
+      "name": "Wait (rate limit)",
+      "webhookId": "REPLACE_ME"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/information-extraction",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"information-extract\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": [\n      {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:application/pdf;base64,{{ $('Extract from File (IE)').first().json.data }}\"}}\n    ]}\n  ],\n  \"response_format\": {\n    \"type\": \"json_schema\",\n    \"json_schema\": {\n      \"name\": \"policy_detail\",\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"target_section_title\": {\"type\": \"string\", \"description\": \"반드시 다음 정책 섹션에 해당하는 내용만 추출: {{ $json.section_title }}\"},\n          \"target_policy_area\": {\"type\": \"string\", \"description\": \"반드시 다음 정책 영역에 해당하는 내용만 추출: {{ $json.policy_area }}\"},\n          \"section_no\": {\"type\": \"integer\", \"description\": \"정책 번호\"},\n          \"section_title\": {\"type\": \"string\", \"description\": \"정책 제목\"},\n          \"summary\": {\"type\": \"string\", \"description\": \"해당 정책의 핵심 요약\"},\n          \"rules\": {\n            \"type\": \"array\",\n            \"description\": \"해당 정책의 세부 규칙 목록. 기간·금액·조건·예외·필요증빙·제한조건·처리기준을 최대한 자세히 추출\",\n            \"items\": {\n              \"type\": \"object\",\n              \"properties\": {\n                \"rule_name\": {\"type\": \"string\", \"description\": \"규칙명\"},\n                \"condition\": {\"type\": \"string\", \"description\": \"규칙 적용 조건\"},\n                \"value\": {\"type\": \"string\", \"description\": \"기준값\"},\n                \"unit\": {\"type\": \"string\", \"description\": \"단위\"},\n                \"exception\": {\"type\": \"string\", \"description\": \"예외 조건\"},\n                \"required_evidence\": {\"type\": \"string\", \"description\": \"필요 증빙 자료\"}\n              },\n              \"required\": [\"rule_name\", \"condition\", \"value\", \"unit\", \"exception\", \"required_evidence\"]\n            }\n          },\n          \"safe_reply_guideline\": {\"type\": \"string\", \"description\": \"고객에게 안전하게 답변하기 위한 기준\"},\n          \"risk_keywords\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}, \"description\": \"위험 답변 감지에 사용할 키워드\"}\n        },\n        \"required\": [\"target_section_title\", \"target_policy_area\", \"section_no\", \"section_title\", \"summary\", \"rules\", \"safe_reply_guideline\", \"risk_keywords\"]\n      }\n    }\n  },\n  \"mode\": \"standard\",\n  \"split\": false,\n  \"confidence\": true\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5056,
+        10000
+      ],
+      "id": "8e02d990-dabf-4c6a-941a-566780cfc239",
+      "name": "IE 2차 정책 상세 추출1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json.choices?.[0]?.message?.content;\nif (!content) throw new Error('IE 2차 응답 파싱 실패: content 없음');\nconst detail = JSON.parse(String(content).replace(/```json|```/g, '').trim());\nconst rawRules = Array.isArray(detail.rules) ? detail.rules : [];\n// 모델이 동일 규칙을 여러 번 반환하는 경우 제거 (rule_name|value|unit|condition 키)\nconst seenRule = new Set();\nconst rules = rawRules.filter((r) => {\n  const key = `${r.rule_name || ''}|${r.value || ''}|${r.unit || ''}|${r.condition || ''}`.trim();\n  if (seenRule.has(key)) return false;\n  seenRule.add(key);\n  return true;\n});\nlet sec = {};\ntry { sec = $('섹션 루프').item.json; } catch (e) {}\nif (!sec.section_title) {\n  const cats = $('섹션 분해').all().map(i => i.json);\n  sec = cats.find(c => String(c.section_title || '').trim() === String(detail.section_title || '').trim()) || cats[0] || {};\n}\nconst uniqJoin = (arr, sep = ' / ') => [...new Set((arr || []).filter(Boolean).map(v => String(v).trim()).filter(Boolean))].join(sep);\nconst amount_rules = rules\n  .filter(r => String(r.unit || '').includes('원') || String(r.value || '').includes('원'))\n  .map(r => `${r.rule_name}: ${r.value}${r.unit ? ' ' + r.unit : ''}${r.condition ? ' (' + r.condition + ')' : ''}`)\n  .join(' / ');\nconst period_rules = rules\n  .filter(r => String(r.unit || '').match(/일|시간|개월|주/) || String(r.value || '').match(/일|시간|개월|주/))\n  .map(r => `${r.rule_name}: ${r.value}${r.unit ? ' ' + r.unit : ''}${r.condition ? ' (' + r.condition + ')' : ''}`)\n  .join(' / ');\nconst allowed_conditions = uniqJoin(rules.map(r => r.condition));\nconst exceptions = uniqJoin(rules.map(r => r.exception).filter(v => v && v !== '없음' && v !== 'N/A'));\nconst required_evidence = uniqJoin(rules.map(r => r.required_evidence).filter(v => v && v !== '없음' && v !== 'N/A'));\nconst risky_expressions = uniqJoin([...(detail.risk_keywords || []), ...rules.map(r => r.rule_name)], ', ');\nconst escalation_conditions = uniqJoin([\n  ...(detail.escalation_conditions || []),\n  ...rules.map(r => r.exception).filter(v => v && v !== '없음' && v !== 'N/A')\n]);\nreturn [{ json: {\n  policy_id: sec.policy_id || 'moamall_2026_05',\n  policy_name: sec.policy_name || '모아몰 고객 응대 정책 약관',\n  section_id: sec.section_id || `sec_${String(detail.section_no || '').padStart(2, '0')}`,\n  section_no: sec.section_no || detail.section_no || '',\n  section_title: sec.section_title || detail.section_title || '',\n  policy_area: sec.policy_area || detail.target_policy_area || '',\n  customer_keywords: uniqJoin([...(sec.keywords || []), ...(detail.risk_keywords || [])], ', '),\n  required_fields: required_evidence,\n  amount_rules,\n  period_rules,\n  allowed_conditions,\n  exceptions,\n  required_evidence,\n  risky_expressions,\n  escalation_conditions,\n  safe_reply_guideline: detail.safe_reply_guideline || '',\n  source_summary: detail.summary || '',\n  created_at: new Date().toISOString()\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        10000
+      ],
+      "id": "02ca1387-c8c7-4153-bb39-4edb0637952c",
+      "name": "Flatten Policy Detail1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  success: true,\n  message: '정책 구조화 룰셋(18컬럼) 2-pass IE 등록 완료. policy_structured 시트에서 섹션 행 수/컬럼 확인하세요.'\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4832,
+        9776
+      ],
+      "id": "cd186d89-e802-49f5-bd34-0e82b1521916",
+      "name": "등록 응답 조립"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        5056,
+        9776
+      ],
+      "id": "2cbcf6f9-ec6f-4e9b-8aa4-a1d235e9397b",
+      "name": "등록 응답"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "REPLACE_ME",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        3520,
+        10320
+      ],
+      "id": "166079a1-4023-4737-ab5e-e6e27bf6fd92",
+      "name": "Webhook (고객)",
+      "webhookId": "REPLACE_ME"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={\n  \"model\": \"solar-pro2\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"당신은 모아몰 고객센터 챗봇입니다. 고객 질문에 한 문장으로 친절하게 답변하세요.\"},\n    {\"role\": \"user\", \"content\": \"{{ $json.body.customer_question }}\"}\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3744,
+        10320
+      ],
+      "id": "41d4f0ea-e3eb-4157-a2b0-c85b9622da11",
+      "name": "챗봇 답변 (Solar)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "시트1"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3952,
+        10320
+      ],
+      "id": "f6e3d625-9bec-4352-8c31-3036c078fe95",
+      "name": "정책 시트 조회"
+    },
+    {
+      "parameters": {
+        "jsCode": "const all = $input.all().map(r => r.json);\nconst latest = {};\nfor (const j of all) latest[j.policy_id] = j;\nconst rows = Object.values(latest);\nconst policy_context = rows.map(j => {\n  if (j.policy_md) {\n    return `# ${j.policy_name || ''} (출처: ${j.source_pdf || ''})\\n${j.policy_md}`;\n  }\n  return `[${j.category || ''}] ${j.policy_name || ''} (출처: ${j.source_pdf || ''})\\n${j.rules_json || ''}`;\n}).join('\\n\\n');\nconst customer_question = $('Webhook (고객)').first().json.body.customer_question;\nconst customer_name     = $('Webhook (고객)').first().json.body.customer_name || '익명 고객';\nconst chatbot_answer    = $('챗봇 답변 (Solar)').first().json.choices[0].message.content;\nreturn [{ json: { customer_question, customer_name, chatbot_answer, policy_context } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4176,
+        10320
+      ],
+      "id": "0ea0769a-6ef6-4346-8590-884a719b8e69",
+      "name": "정책 컨텍스트 조립"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={\n  \"model\": \"solar-pro2\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"당신은 모아몰 챗봇 답변 검증기입니다. 아래 '정책 모음'은 환불·교환·배송·쿠폰·신선식품·전자제품·의류·포인트·정기배송·파손보상 등 모아몰의 전체 고객 응대 정책이 담긴 마크다운 전문이며, 표를 포함합니다. 고객 질문과 가장 관련된 정책 조항을 스스로 찾되, 표의 각 행과 '예외 조건'까지 빠짐없이 확인하세요. 챗봇 답변의 핵심 숫자나 조건이 정책과 다르면 RED, 정책상 맞지만 중요한 단서·예외가 누락되면 YELLOW, 정책과 완전히 일치하면 GREEN으로 판정하세요. 반드시 정책에 근거한 안전한 답변(safe_answer)을 함께 생성하세요. 관련 정책을 정책 모음에서 찾을 수 없으면 risk_level은 YELLOW로 두고 safe_answer에 상담원 연결이 필요하다고 안내하세요.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify('고객 질문: ' + $json.customer_question + ' / 챗봇 답변: ' + $json.chatbot_answer + ' / 정책 모음: ' + $json.policy_context) }}}\n  ],\n  \"response_format\": {\n    \"type\": \"json_schema\",\n    \"json_schema\": {\n      \"name\": \"guardrail_verdict\",\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"risk_level\": {\"type\": \"string\", \"enum\": [\"GREEN\", \"YELLOW\", \"RED\"]},\n          \"risk_reason\": {\"type\": \"string\"},\n          \"blocked\": {\"type\": \"boolean\"},\n          \"safe_answer\": {\"type\": \"string\"}\n        },\n        \"required\": [\"risk_level\", \"risk_reason\", \"blocked\", \"safe_answer\"]\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4400,
+        10320
+      ],
+      "id": "5704f85d-b1a3-4b09-b517-b7b95d00e290",
+      "name": "답변 검증 (Solar)"
+    },
+    {
+      "parameters": {
+        "jsCode": "let verdict;\ntry {\n  let raw = $('답변 검증 (Solar)').first().json.choices[0].message.content;\n  raw = String(raw).replace(/```json/g, '').replace(/```/g, '').trim();\n  verdict = JSON.parse(raw);\n} catch (e) {\n  verdict = { risk_level: 'YELLOW', risk_reason: '검증 응답 파싱 실패: ' + e.message, blocked: false,\n    safe_answer: '죄송합니다, 답변을 검증하는 중 문제가 발생했습니다. 상담원에게 연결해 드리겠습니다.' };\n}\nconst merged = $('정책 컨텍스트 조립').first().json;\nconst risk = (verdict.risk_level || 'YELLOW').toUpperCase();\nlet policy_source = '';\ntry { policy_source = $('정책 시트 조회').last().json.source_pdf || ''; } catch (e) {}\nconst timestamp = new Date().toISOString();\nconst blocked = risk === 'RED';\nlet display_answer, show_warning, warning_text;\nif (risk === 'RED') {\n  show_warning = true;\n  warning_text = '정책과 일치하지 않아 답변이 차단되었습니다.';\n  display_answer = '안내드린 내용이 최신 정책과 일치하지 않아 표시할 수 없습니다. 정확한 확인을 위해 관리자(상담원)에게 문의해 주세요.';\n} else if (risk === 'YELLOW') {\n  show_warning = true;\n  warning_text = '이 답변은 정책 확인 후 자동 보정된 내용입니다.';\n  display_answer = verdict.safe_answer;\n} else {\n  show_warning = false;\n  warning_text = '';\n  display_answer = merged.chatbot_answer;\n}\nreturn [{ json: {\n  customer_name: merged.customer_name,\n  customer_question: merged.customer_question,\n  chatbot_answer: merged.chatbot_answer,\n  risk_level: risk,\n  risk_reason: verdict.risk_reason,\n  blocked,\n  safe_answer: verdict.safe_answer,\n  policy_source,\n  timestamp,\n  _customer: { risk_level: risk, display_answer, show_warning, warning_text, blocked, policy_source, timestamp }\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4624,
+        10320
+      ],
+      "id": "4f1b5b5b-d5be-4144-abb9-b071fe6e0a35",
+      "name": "위험도 분기"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json._customer }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4896,
+        10320
+      ],
+      "id": "b3ce9113-06ec-45b3-b4b7-5b3567dbc1b4",
+      "name": "고객 응답"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dfe1e7a5-aa50-414e-a348-cb260139715c",
+              "leftValue": "={{ $json.risk_level }}",
+              "rightValue": "GREEN",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        4832,
+        10528
+      ],
+      "id": "ad0efe89-0c93-435a-94d0-ec5f7767e96d",
+      "name": "YELLOW/RED만 통과"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"solar-pro2\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"당신은 모아몰 고객센터의 문의 분류기입니다. 고객 문의를 분석해 주제·의도·감정·시급성을 정해진 분류 중에서 고르세요. 검증이나 정책 판단은 하지 말고 분류만 수행하세요.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify(\"고객 문의: \" + $json.customer_question) }}}\n  ],\n  \"response_format\": {\"type\": \"json_schema\", \"json_schema\": {\"name\": \"customer_meta\", \"schema\": {\"type\": \"object\", \"properties\": {\"topic\": {\"type\": \"string\", \"enum\": [\"환불\", \"교환\", \"배송\", \"쿠폰\", \"신선식품\", \"전자제품\", \"의류\", \"포인트\", \"정기배송\", \"파손\"], \"description\": \"고객 문의가 속한 정책 카테고리\"}, \"intent\": {\"type\": \"string\", \"enum\": [\"환불반품교환요청\", \"정책절차정보문의\", \"항의불만제기\", \"계정개인정보문의\", \"배송상태확인\", \"결제문제\", \"쿠폰포인트혜택문의\", \"AS수리요청\", \"기타일반문의\"], \"description\": \"고객의 핵심 의도\"}, \"sentiment\": {\"type\": \"string\", \"enum\": [\"분노\", \"불안\", \"중립\", \"만족\"], \"description\": \"고객의 감정 상태\"}, \"urgency\": {\"type\": \"string\", \"enum\": [\"높음\", \"보통\", \"낮음\"], \"description\": \"대응 시급성\"}}, \"required\": [\"topic\", \"intent\", \"sentiment\", \"urgency\"]}}}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5008,
+        10528
+      ],
+      "id": "483e4693-ae5a-4f4e-a5b0-901c1141b170",
+      "name": "고객 메타 분류 (Solar)"
+    },
+    {
+      "parameters": {
+        "jsCode": "let meta = { topic:'기타', intent:'기타일반문의', sentiment:'중립', urgency:'보통' };\ntry {\n  let raw = $('고객 메타 분류 (Solar)').first().json.choices[0].message.content;\n  raw = String(raw).replace(/```json/g,'').replace(/```/g,'').trim();\n  const m = JSON.parse(raw);\n  meta = {\n    topic: m.topic || meta.topic,\n    intent: m.intent || meta.intent,\n    sentiment: m.sentiment || meta.sentiment,\n    urgency: m.urgency || meta.urgency\n  };\n} catch (e) { /* 기본값 유지 */ }\nconst base = $('YELLOW/RED만 통과').first().json;\nreturn [{ json: { ...base, ...meta } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5168,
+        10528
+      ],
+      "id": "c80ae6c4-81c1-43f3-b159-576cf1d8ffc1",
+      "name": "메타 병합"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 119650977,
+          "mode": "list",
+          "cachedResultName": "guardrail_logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "customer_name": "={{ $json.customer_name }}",
+            "customer_question": "={{ $json.customer_question }}",
+            "chatbot_answer": "={{ $json.chatbot_answer }}",
+            "risk_level": "={{ $json.risk_level }}",
+            "risk_reason": "={{ $json.risk_reason }}",
+            "blocked": "={{ $json.blocked }}",
+            "safe_answer": "={{ $json.safe_answer }}",
+            "policy_source": "={{ $json.policy_source }}",
+            "topic": "={{ $json.topic }}",
+            "intent": "={{ $json.intent }}",
+            "sentiment": "={{ $json.sentiment }}",
+            "urgency": "={{ $json.urgency }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_question",
+              "displayName": "customer_question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "chatbot_answer",
+              "displayName": "chatbot_answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risk_level",
+              "displayName": "risk_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risk_reason",
+              "displayName": "risk_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "blocked",
+              "displayName": "blocked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "safe_answer",
+              "displayName": "safe_answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "policy_source",
+              "displayName": "policy_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5344,
+        10528
+      ],
+      "id": "9820bd93-01d6-4bfd-a412-b0a6c864d83a",
+      "name": "로그 적재"
+    },
+    {
+      "parameters": {
+        "path": "REPLACE_ME",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        3520,
+        10688
+      ],
+      "id": "7b78cc6d-0f31-423b-809f-2df64e4917f6",
+      "name": "Webhook (관리자)",
+      "webhookId": "REPLACE_ME"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 974408221,
+          "mode": "list",
+          "cachedResultName": "policy_structured"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3712,
+        10688
+      ],
+      "id": "082b9273-ac87-4f4f-8e1b-d23d817fede8",
+      "name": "룰셋 시트 조회1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 119650977,
+          "mode": "list",
+          "cachedResultName": "guardrail_logs"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3888,
+        10688
+      ],
+      "id": "c9aec54e-4f6a-40bf-aff1-fed613282086",
+      "name": "로그 시트 조회1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const TOPIC2CAT = {\n  '환불':'refund', '교환':'exchange', '배송':'shipping', '쿠폰':'coupon',\n  '신선식품':'fresh_food', '전자제품':'electronics', '의류':'clothing',\n  '포인트':'points', '정기배송':'subscription', '파손':'damage'\n};\nfunction normalizeAreas(row) {\n  const blob = [row.policy_area, row.section_title, row.customer_keywords]\n    .map(v => String(v || '').toLowerCase()).join(' ');\n  const cats = new Set();\n  const has = (...ss) => ss.some(s => blob.includes(s));\n  if (has('refund','환불','반품'))            cats.add('refund');\n  if (has('exchange','교환'))                 cats.add('exchange');\n  if (has('deliver','shipping','ship','배송')) cats.add('shipping');\n  if (has('coupon','쿠폰'))                   cats.add('coupon');\n  if (has('fresh','food','신선','식품'))       cats.add('fresh_food');\n  if (has('electron','전자'))                 cats.add('electronics');\n  if (has('cloth','apparel','의류'))          cats.add('clothing');\n  if (has('point','포인트','적립'))            cats.add('points');\n  if (has('subscri','정기'))                  cats.add('subscription');\n  if (has('damage','파손','보상'))             cats.add('damage');\n  return [...cats];\n}\nfunction toPolicyRef(row) {\n  const ref = {\n    기간규칙: row.period_rules,\n    금액규칙: row.amount_rules,\n    허용조건: row.allowed_conditions,\n    예외조건: row.exceptions,\n    필요증빙: row.required_evidence,\n  };\n  return Object.fromEntries(Object.entries(ref).filter(([k, v]) => v && String(v).trim()));\n}\nconst ruleRows = $('룰셋 시트 조회1').all().map(i => i.json);\nconst ruleIndex = {};\nconst policy_rules = [];\nfor (const r of ruleRows) {\n  const ref = toPolicyRef(r);\n  const cats = normalizeAreas(r);\n  policy_rules.push({\n    policy_id: r.policy_id,\n    policy_name: r.section_title || r.policy_name,\n    category: cats[0] || r.policy_area || '',\n    rules: ref,\n    source_pdf: r.source_pdf || r.policy_name || '',\n    created_at: r.created_at || ''\n  });\n  for (const c of cats) {\n    if (!ruleIndex[c]) ruleIndex[c] = Object.assign({}, r, { _ref: ref, _name: r.section_title || r.policy_name });\n  }\n}\nfunction buildAction(topic, riskLevel, matched) {\n  if (!matched) {\n    return { headline: '관련 정책 미확인 — 상담원 직접 검토 필요',\n             steps: ['해당 문의에 매칭되는 정책 섹션이 없습니다. 상담원이 약관 원문을 직접 확인하세요.'],\n             policy_ref: null, policy_name: '' };\n  }\n  const name = matched._name || '';\n  const steps = [];\n  if (riskLevel === 'RED') {\n    steps.push('챗봇 답변이 정책과 불일치하여 고객에게 차단 표시됨. 고객에게 정정 안내를 직접 발송하세요.');\n  } else if (riskLevel === 'YELLOW') {\n    steps.push('자동 보정 답변이 고객에게 전달됨. 보정 내용이 정책과 맞는지 검수 후 필요시 추가 안내하세요.');\n  }\n  const pairs = Object.entries(matched._ref).map(([k, v]) => `${k}: ${v}`);\n  if (pairs.length) steps.push(`적용 정책 [${name}] 기준값 확인 — ${pairs.join(' / ')}`);\n  if (matched.safe_reply_guideline && String(matched.safe_reply_guideline).trim()) {\n    steps.push(`안전 답변 기준: ${matched.safe_reply_guideline}`);\n  }\n  if (matched.escalation_conditions && String(matched.escalation_conditions).trim()) {\n    steps.push(`에스컬레이션 조건: ${matched.escalation_conditions}`);\n  }\n  steps.push('위 기준값과 고객 상황(기간/조건/품목)을 대조하여 처리 가능 여부를 최종 판단하세요.');\n  return { headline: `${name} 기준으로 대응`, steps, policy_ref: matched._ref, policy_name: name };\n}\nconst logRows = $('로그 시트 조회1').all().map(i => i.json);\nlogRows.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));\nconst items = logRows.map(l => {\n  const cat = TOPIC2CAT[l.topic] || null;\n  const matched = cat ? ruleIndex[cat] : null;\n  const action = buildAction(l.topic, l.risk_level, matched);\n  return {\n    preview: {\n      timestamp: l.timestamp, customer_name: l.customer_name, risk_level: l.risk_level,\n      blocked: l.blocked, topic: l.topic, intent: l.intent, sentiment: l.sentiment, urgency: l.urgency\n    },\n    recommended_action: action,\n    detail: {\n      customer_question: l.customer_question, chatbot_answer: l.chatbot_answer,\n      risk_reason: l.risk_reason, safe_answer: l.safe_answer, policy_source: l.policy_source\n    }\n  };\n});\nconst total = items.length;\nconst red = items.filter(i => i.preview.risk_level === 'RED').length;\nconst yellow = items.filter(i => i.preview.risk_level === 'YELLOW').length;\nreturn [{ json: { stats: { total, red, yellow }, logs: items, policy_rules } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        10688
+      ],
+      "id": "a5b2c494-321b-4880-8bcb-6732d984fa91",
+      "name": "관리자 데이터 조립"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4240,
+        10688
+      ],
+      "id": "9b993ef4-fc76-4fb9-93b7-d783a93b15f6",
+      "name": "관리자 응답"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.upstage.ai/v1/document-digitization",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "document",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "document-parse"
+            },
+            {
+              "name": "output_formats",
+              "value": "[\"html\", \"markdown\"]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3712,
+        9664
+      ],
+      "id": "2a606045-968d-4f00-8fe3-4785c5fd5a22",
+      "name": "Document Parse (md)1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nlet src_pdf = 'uploaded_policy.pdf';\ntry { src_pdf = $('Webhook (등록)').first().binary.data.fileName || src_pdf; } catch (e) {}\nconst c = j.content || {};\nlet md = '';\nif (typeof c === 'string') md = c;\nelse md = c.markdown || c.html || c.text || '';\nif (!md) md = j.markdown || j.html || j.text || '';\nif (!md) {\n  const ck = (c && typeof c === 'object') ? Object.keys(c).join(',') : typeof c;\n  throw new Error('Document Parse 응답에서 markdown을 찾지 못함. top keys: ' + Object.keys(j).join(',') + ' / content keys: ' + ck);\n}\nreturn [{ json: {\n  policy_id: 'pol_full_001',\n  policy_name: '모아몰 고객 응대 정책 약관',\n  source_pdf: src_pdf,\n  policy_md: md,\n  created_at: new Date().toISOString()\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3936,
+        9664
+      ],
+      "id": "9574ac1a-da7a-4d45-8ae6-20ddaf131221",
+      "name": "Extract markdown1"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "시트1"
+        },
+        "clear": "specificRange",
+        "range": "=2:100"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4160,
+        9664
+      ],
+      "id": "42f5ebbe-a3ba-4efd-bdcc-8a30b3863350",
+      "name": "시트1 비우기 (전문)1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "시트1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "policy_id": "={{ $json.policy_id }}",
+            "policy_name": "={{ $json.policy_name }}",
+            "source_pdf": "={{ $json.source_pdf }}",
+            "policy_md": "={{ $json.policy_md }}",
+            "created_at": "={{ $json.created_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "policy_id",
+              "displayName": "policy_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "policy_name",
+              "displayName": "policy_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_pdf",
+              "displayName": "source_pdf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "policy_md",
+              "displayName": "policy_md",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4384,
+        9664
+      ],
+      "id": "3c144387-3184-4e04-bca6-4b1157199d6e",
+      "name": "Append 정책 전문1"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 974408221,
+          "mode": "list",
+          "cachedResultName": "policy_structured"
+        },
+        "clear": "specificRange",
+        "range": "=2:100"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3936,
+        9888
+      ],
+      "id": "a48beac1-e0be-4518-b80b-2072c2426bab",
+      "name": "policy_structured 비우기1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "moamart_policy_rules"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 974408221,
+          "mode": "list",
+          "cachedResultName": "policy_structured"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "policy_id": "={{ $json.policy_id }}",
+            "policy_name": "={{ $json.policy_name }}",
+            "section_id": "={{ $json.section_id }}",
+            "section_no": "={{ $json.section_no }}",
+            "section_title": "={{ $json.section_title }}",
+            "policy_area": "={{ $json.policy_area }}",
+            "customer_keywords": "={{ $json.customer_keywords }}",
+            "required_fields": "={{ $json.required_fields }}",
+            "amount_rules": "={{ $json.amount_rules }}",
+            "period_rules": "={{ $json.period_rules }}",
+            "allowed_conditions": "={{ $json.allowed_conditions }}",
+            "exceptions": "={{ $json.exceptions }}",
+            "required_evidence": "={{ $json.required_evidence }}",
+            "risky_expressions": "={{ $json.risky_expressions }}",
+            "escalation_conditions": "={{ $json.escalation_conditions }}",
+            "safe_reply_guideline": "={{ $json.safe_reply_guideline }}",
+            "source_summary": "={{ $json.source_summary }}",
+            "created_at": "={{ $json.created_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "policy_id",
+              "displayName": "policy_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "policy_name",
+              "displayName": "policy_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "section_id",
+              "displayName": "section_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "section_no",
+              "displayName": "section_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "section_title",
+              "displayName": "section_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "policy_area",
+              "displayName": "policy_area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_keywords",
+              "displayName": "customer_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "required_fields",
+              "displayName": "required_fields",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_rules",
+              "displayName": "amount_rules",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "period_rules",
+              "displayName": "period_rules",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "allowed_conditions",
+              "displayName": "allowed_conditions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "exceptions",
+              "displayName": "exceptions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "required_evidence",
+              "displayName": "required_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risky_expressions",
+              "displayName": "risky_expressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "escalation_conditions",
+              "displayName": "escalation_conditions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "safe_reply_guideline",
+              "displayName": "safe_reply_guideline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_summary",
+              "displayName": "source_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5504,
+        10000
+      ],
+      "id": "15560b28-2949-435a-b93f-2f562d661c5b",
+      "name": "Append 룰셋 (policy_structured)1"
+    }
+  ],
+  "connections": {
+    "Webhook (등록)": {
+      "main": [
+        [
+          {
+            "node": "Document Parse (md)1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract from File (IE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File (IE)": {
+      "main": [
+        [
+          {
+            "node": "policy_structured 비우기1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IE 1차 정책 주제 추출": {
+      "main": [
+        [
+          {
+            "node": "섹션 분해",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "섹션 분해": {
+      "main": [
+        [
+          {
+            "node": "섹션 루프",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "섹션 루프": {
+      "main": [
+        [
+          {
+            "node": "등록 응답 조립",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (rate limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (rate limit)": {
+      "main": [
+        [
+          {
+            "node": "IE 2차 정책 상세 추출1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IE 2차 정책 상세 추출1": {
+      "main": [
+        [
+          {
+            "node": "Flatten Policy Detail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Policy Detail1": {
+      "main": [
+        [
+          {
+            "node": "Append 룰셋 (policy_structured)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "등록 응답 조립": {
+      "main": [
+        [
+          {
+            "node": "등록 응답",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (고객)": {
+      "main": [
+        [
+          {
+            "node": "챗봇 답변 (Solar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "챗봇 답변 (Solar)": {
+      "main": [
+        [
+          {
+            "node": "정책 시트 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "정책 시트 조회": {
+      "main": [
+        [
+          {
+            "node": "정책 컨텍스트 조립",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "정책 컨텍스트 조립": {
+      "main": [
+        [
+          {
+            "node": "답변 검증 (Solar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "답변 검증 (Solar)": {
+      "main": [
+        [
+          {
+            "node": "위험도 분기",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "위험도 분기": {
+      "main": [
+        [
+          {
+            "node": "고객 응답",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "YELLOW/RED만 통과",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YELLOW/RED만 통과": {
+      "main": [
+        [
+          {
+            "node": "고객 메타 분류 (Solar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "고객 메타 분류 (Solar)": {
+      "main": [
+        [
+          {
+            "node": "메타 병합",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "메타 병합": {
+      "main": [
+        [
+          {
+            "node": "로그 적재",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (관리자)": {
+      "main": [
+        [
+          {
+            "node": "룰셋 시트 조회1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "룰셋 시트 조회1": {
+      "main": [
+        [
+          {
+            "node": "로그 시트 조회1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "로그 시트 조회1": {
+      "main": [
+        [
+          {
+            "node": "관리자 데이터 조립",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "관리자 데이터 조립": {
+      "main": [
+        [
+          {
+            "node": "관리자 응답",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Parse (md)1": {
+      "main": [
+        [
+          {
+            "node": "Extract markdown1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract markdown1": {
+      "main": [
+        [
+          {
+            "node": "시트1 비우기 (전문)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "시트1 비우기 (전문)1": {
+      "main": [
+        [
+          {
+            "node": "Append 정책 전문1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "policy_structured 비우기1": {
+      "main": [
+        [
+          {
+            "node": "IE 1차 정책 주제 추출",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append 룰셋 (policy_structured)1": {
+      "main": [
+        [
+          {
+            "node": "섹션 루프",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6becc468-164f-47b8-a3e0-edfa09b8b737",
+  "id": "dPy2kccQ757VRSmI",
+  "tags": []
+}
